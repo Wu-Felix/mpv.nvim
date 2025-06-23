@@ -38,7 +38,6 @@ function M.start_mpv(path)
 	else
 		music_path = config.music_path
 	end
-	print(music_path)
 	if not M.is_mpv_running() then
 		vim.system({
 			"mpv",
@@ -159,6 +158,7 @@ end
 function M.send_to_mpv(command_table, callback)
 	if not M.pipe then
 		vim.notify("mpv 未连接", vim.log.levels.ERROR)
+		M.connect()
 		return
 	end
 
@@ -195,6 +195,39 @@ end
 function M.get_volume()
 	M.send_to_mpv({ command = { "get_property", "volume" } }, function(data)
 		vim.notify("当前音量: " .. tostring(data))
+	end)
+end
+-- 快进 10 秒
+function M.mpv_seek_forward(seconds)
+	seconds = seconds or 5
+	M.send_to_mpv({ command = { "seek", seconds, "relative" } })
+end
+
+-- 快退 10 秒
+function M.mpv_seek_backward(seconds)
+	seconds = seconds or 5
+	M.send_to_mpv({ command = { "seek", -seconds, "relative" } })
+end
+
+function M.set_speed(rate)
+	rate = tonumber(rate)
+	if not rate or rate <= 0 then
+		vim.notify("无效倍速：" .. tostring(rate), vim.log.levels.ERROR)
+		return
+	end
+	M.send_to_mpv({ command = { "set_property", "speed", rate } })
+end
+
+function M.get_speed()
+	M.send_to_mpv({ command = { "get_property", "speed" } }, function(data)
+		vim.notify("当前播放速度: " .. tostring(data) .. "x")
+	end)
+end
+
+function M.adjust_speed(delta)
+	M.send_to_mpv({ command = { "get_property", "speed" } }, function(current)
+		local new_speed = math.max(0.1, current + delta)
+		M.set_speed(new_speed)
 	end)
 end
 
@@ -311,6 +344,54 @@ end, { desc = "mpv title" })
 vim.api.nvim_create_user_command("MpvInfo", function()
 	M.get_playback_info()
 end, { desc = "mpv info" })
+
+vim.api.nvim_create_user_command("MpvSeekForward", function(opts)
+	if opts.args == "" then
+		M.mpv_seek_forward()
+	else
+		M.mpv_seek_forward(opts.args)
+	end
+	vim.defer_fn(function()
+		M.get_playback_info()
+	end, 100)
+end, { desc = "mpv seek backward", nargs = "?" })
+
+vim.api.nvim_create_user_command("MpvSeekBackward", function(opts)
+	if opts.args == "" then
+		M.mpv_seek_backward()
+	else
+		M.mpv_seek_backward(opts.args)
+	end
+	vim.defer_fn(function()
+		M.get_playback_info()
+	end, 100)
+end, { desc = "mpv seek backward", nargs = "?" })
+
+vim.api.nvim_create_user_command("MpvSpeed", function(opts)
+	local rate = tonumber(opts.args)
+	if rate then
+		M.set_speed(rate)
+	else
+		M.get_speed()
+	end
+end, {
+	nargs = "?",
+	desc = "设置或获取 mpv 播放速度。示例：:MpvSpeed 1.5",
+})
+
+vim.api.nvim_create_user_command("MpvSpeedUp", function()
+	M.adjust_speed(0.1)
+	vim.defer_fn(function()
+		M.get_speed()
+	end, 100)
+end, { desc = "播放速度 +0.1" })
+
+vim.api.nvim_create_user_command("MpvSpeedDown", function()
+	M.adjust_speed(-0.1)
+	vim.defer_fn(function()
+		M.get_speed()
+	end, 100)
+end, { desc = "播放速度 -0.1" })
 
 vim.api.nvim_create_user_command("MpvPicker", function()
 	local ok_snacks, snacks = pcall(require, "snacks.picker")

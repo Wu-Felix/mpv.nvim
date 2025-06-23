@@ -54,7 +54,14 @@ Optional: Customize in your `init.lua`:
     { "<leader>mk", "<cmd>MpvVolumeUp<cr>", desc = "mpv volume up" },
     { "<leader>mj", "<cmd>MpvVolumDown<cr>", desc = "mpv volume down" },
     { "<leader>mp", "<cmd>MpvPause<cr>", desc = "mpv pause" },
-    { "<leader>mo", "<cmd>MpvPlay<cr>", desc = "mpv play" },
+    { "<leader>mo", "<cmd>MpvPicker<cr>", desc = "mpv pause" },
+    { "<leader>m", "<cmd>MpvPlay<cr>", desc = "mpv pause" },
+    { "<leader>ml", "<cmd>MpvSeekForward<cr>", desc = "mpv seek forward 5" },
+    { "<leader>mh", "<cmd>MpvSeekBackward<cr>", desc = "mpv seek backward 5" },
+    { "<leader>mL", "<cmd>MpvSeekForward 60<cr>", desc = "mpv seek forward 60" },
+    { "<leader>mH", "<cmd>MpvSeekBackward 60<cr>", desc = "mpv seek backward 60" },
+    { "<leader>m+", "<cmd>MpvSpeedUp<cr>", desc = "mpv speed 0.1" },
+    { "<leader>m-", "<cmd>MpvSpeedDown<cr>", desc = "mpv speed -0.1" },
   },
 ```
 

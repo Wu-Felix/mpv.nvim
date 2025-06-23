@@ -1,9 +1,10 @@
 local M = { pipe = nil }
 local config = require("mpv.config")
 local uv = vim.uv
-
-local connected = false
 local flag = false
+
+M.send_queue = {}
+M.connecting = false
 M.req_id = 0
 M.pending = {} -- 储存回调: request_id -> function(data)
 
@@ -75,11 +76,13 @@ function M.mpv_play(path)
 	})
 end
 function M.connect()
-	if connected then
+	if connected or M.connecting then
 		return
 	end
+	M.connecting = true
 	M.pipe = uv.new_pipe(false)
 	M.pipe:connect(config.ipc_path, function(err)
+		M.connecting = false
 		if err then
 			vim.notify("连接 mpv 失败: " .. err, vim.log.levels.ERROR)
 			return
@@ -88,7 +91,7 @@ function M.connect()
 		vim.notify("已连接 mpv", vim.log.levels.INFO)
 
 		local buffer = ""
-		M.pipe:read_start(function(err2, data)
+		M.pipe:read_start(function(_, data)
 			if data then
 				buffer = buffer .. data
 				for line in buffer:gmatch("[^\r\n]+") do
@@ -97,8 +100,6 @@ function M.connect()
 						if not ok or not decoded then
 							return
 						end
-
-						-- get_property 响应
 						if decoded.request_id then
 							local cb = M.pending[decoded.request_id]
 							if cb then
@@ -106,8 +107,6 @@ function M.connect()
 								M.pending[decoded.request_id] = nil
 							end
 						end
-
-						-- 事件，如 start-file
 						if decoded.event == "start-file" then
 							vim.defer_fn(function()
 								M.get_playback_info()
@@ -115,9 +114,15 @@ function M.connect()
 						end
 					end)
 				end
-				buffer = "" -- 每次处理完清空
+				buffer = ""
 			end
 		end)
+
+		-- ⚠️连接成功后发送所有排队的命令
+		for _, item in ipairs(M.send_queue) do
+			M.send_to_mpv(item.cmd, item.cb)
+		end
+		M.send_queue = {}
 	end)
 end
 
@@ -156,16 +161,18 @@ function M.auto_start_mpv()
 end
 
 function M.send_to_mpv(command_table, callback)
-	if not M.pipe then
-		vim.notify("mpv 未连接", vim.log.levels.ERROR)
-		M.connect()
+	if not M.pipe or not M.pipe:is_active() or M.connecting then
+		table.insert(M.send_queue, { cmd = command_table, cb = callback })
+		if not M.connecting then
+			M.connect()
+		end
 		return
 	end
 
 	M.req_id = M.req_id + 1
 	command_table.request_id = M.req_id
 
-	local json = vim.fn.json_encode(command_table)
+	local json = vim.json.encode(command_table)
 	M.pipe:write(json .. "\n")
 
 	if callback then

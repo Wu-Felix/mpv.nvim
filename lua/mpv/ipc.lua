@@ -3,10 +3,14 @@ local config = require("mpv.config")
 local uv = vim.uv
 
 local connected = false
+local flag = false
 M.req_id = 0
 M.pending = {} -- 储存回调: request_id -> function(data)
 
 function M.is_mpv_running()
+	if flag then
+		return true
+	end
 	if vim.fn.has("win32") == 1 then
 		local handle = io.popen('tasklist /FI "IMAGENAME eq mpv.exe"')
 		if not handle then
@@ -27,17 +31,18 @@ function M.is_mpv_running()
 	end
 end
 
-function M.start_mpv()
-	local path = vim.fn.glob(config.music_path .. "/*", false, true)[1]
-	if not path then
-		vim.notify("未找到音乐文件", vim.log.levels.WARN)
-		return
+function M.start_mpv(path)
+	local music_path
+	if path == "" then
+		music_path = path
+	else
+		music_path = config.music_path
 	end
-
+	print(music_path)
 	if not M.is_mpv_running() then
 		vim.system({
 			"mpv",
-			config.music_path,
+			music_path,
 			"--input-ipc-server=" .. config.ipc_path,
 			"--idle=yes",
 			"--force-window=no",
@@ -129,6 +134,27 @@ vim.api.nvim_create_autocmd("VimLeavePre", {
 		end
 	end,
 })
+function M.auto_start_mpv()
+	if not M.is_mpv_running() then
+		vim.system({
+			"mpv",
+			"--input-ipc-server=" .. config.ipc_path,
+			"--idle=yes",
+			"--force-window=no",
+			"--no-terminal",
+			"--no-video",
+			"--shuffle",
+			"--volume=50",
+			"--loop-playlist",
+		}, {
+			detach = true,
+		})
+		flag = true
+		vim.defer_fn(function()
+			M.connect()
+		end, 500)
+	end
+end
 
 function M.send_to_mpv(command_table, callback)
 	if not M.pipe then
@@ -160,6 +186,10 @@ end
 -- 暂停/播放切换
 function M.mpv_toggle_pause()
 	M.send_to_mpv({ command = { "cycle", "pause" } })
+end
+
+function M.play_file(path)
+	M.send_to_mpv({ command = { "loadfile", path, "replace" } })
 end
 
 function M.get_volume()
@@ -281,4 +311,27 @@ end, { desc = "mpv title" })
 vim.api.nvim_create_user_command("MpvInfo", function()
 	M.get_playback_info()
 end, { desc = "mpv info" })
+
+vim.api.nvim_create_user_command("MpvPicker", function()
+	local ok_snacks, snacks = pcall(require, "snacks.picker")
+	if not ok_snacks then
+		vim.notify("snacks.nvim 未安装，无法打开选择器", vim.log.levels.ERROR)
+		return
+	end
+	require("mpv.ipc").auto_start_mpv()
+	require("snacks.picker").files({
+		cwd = "~/OneDrive/PARA/resource/music", -- 或其他目录
+		ignored = true,
+		actions = {
+			confirm = function(picker, item)
+				if not item then
+					return
+				end
+				local path = vim.fn.expand("~/OneDrive/PARA/resource/music/" .. item.file)
+				M.play_file(path)
+				picker:close()
+			end,
+		},
+	})
+end, {})
 return M

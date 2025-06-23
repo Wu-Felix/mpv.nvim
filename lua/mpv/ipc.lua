@@ -52,6 +52,24 @@ function M.start_mpv()
 	end
 end
 
+function M.mpv_play(path)
+	if M.is_mpv_running() then
+		if vim.fn.has("win32") == 1 then
+			os.execute("taskkill /IM mpv.exe /F")
+		else
+			-- 等待命令执行完成，避免 nvim 退出太快
+			os.execute("pkill -f 'mpv.*" .. config.ipc_path .. "'")
+		end
+	end
+	connected = false
+	vim.system({
+		"mpv",
+		path,
+		"--input-ipc-server=" .. config.ipc_path,
+	}, {
+		detach = true,
+	})
+end
 function M.connect()
 	if connected then
 		return
@@ -229,12 +247,20 @@ vim.api.nvim_create_user_command("MpvPrev", function()
 	M.mpv_playlist_prev()
 end, { desc = "mpv playlist perv" })
 
-vim.api.nvim_create_user_command("MpvPlay", function()
-	M.start_mpv()
+vim.api.nvim_create_user_command("MpvPlay", function(opts)
+	if opts.args == "" then
+		M.start_mpv()
+	else
+		M.mpv_play(vim.fn.expand(opts.args))
+	end
 	vim.defer_fn(function()
 		M.connect()
-	end, 2000)
-end, { desc = "mpv playlist perv" })
+	end, 500)
+end, {
+	desc = "mpv playlist perv",
+	nargs = "?",
+	complete = "file",
+})
 
 vim.api.nvim_create_user_command("MpvPause", function()
 	M.mpv_toggle_pause()

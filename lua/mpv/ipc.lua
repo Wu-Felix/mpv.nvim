@@ -322,6 +322,26 @@ vim.api.nvim_create_user_command("MpvPicker", function()
 	require("snacks.picker").files({
 		cwd = "~/OneDrive/PARA/resource/music", -- 或其他目录
 		ignored = true,
+		preview = function(item)
+			if not item then
+				return
+			end
+			-- local path = vim.fn.expand("~/OneDrive/PARA/resource/music/" .. item.file)
+			local path = Snacks.picker.util.path(item.item)
+			if vim.fn.executable("mediainfo") == 1 then
+				vim.system({ "mediainfo", path }, { text = true }, function(obj)
+					vim.schedule(function()
+						if obj.code == 0 then
+							item.preview:notify(obj.stdout, info)
+						else
+							item.preview:notify(obj.stderr, error)
+						end
+					end)
+				end)
+			else
+				item.preview:notify(path, info)
+			end
+		end,
 		actions = {
 			confirm = function(picker, item)
 				if not item then

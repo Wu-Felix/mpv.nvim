@@ -53,7 +53,7 @@ function M.start_mpv(path)
 			"--shuffle",
 			"--volume=50",
 			"--loop-playlist",
-			"--no-save-position-on-quit",
+			"--no-resume-playback",
 		}, {
 			detach = true,
 		})
@@ -92,7 +92,7 @@ function M.connect()
 		end
 		connected = true
 		vim.notify("已连接 mpv", vim.log.levels.INFO)
-
+		M.start_time_title()
 		local buffer = ""
 		M.pipe:read_start(function(_, data)
 			if data then
@@ -268,8 +268,9 @@ function M.get_playback_info()
 			M.format_time(info["duration"]),
 			tonumber(info["percent-pos"] or 0)
 		)
-		M.title = (info["media-title"] or "未知"):gsub("%%#", "%%") or ""
+		-- M.title = (info["media-title"] or "未知"):gsub("%%#", "%%") or ""
 
+		M.title = msg or ""
 		vim.notify(msg, vim.log.levels.INFO, { title = "mpv 播放信息" })
 	end
 
@@ -349,6 +350,7 @@ end
 
 function M.quit()
 	M.send_to_mpv({ command = { "quit" } })
+	M.title = ""
 	vim.notify("mpv 已退出", vim.log.levels.INFO, { title = "mpv" })
 end
 
@@ -415,9 +417,6 @@ function M.setup()
 		else
 			M.mpv_seek_forward(opts.args)
 		end
-		vim.defer_fn(function()
-			M.get_playback_info()
-		end, 100)
 	end, { desc = "mpv seek backward", nargs = "?" })
 
 	vim.api.nvim_create_user_command("MpvSeekBackward", function(opts)
@@ -426,9 +425,6 @@ function M.setup()
 		else
 			M.mpv_seek_backward(opts.args)
 		end
-		vim.defer_fn(function()
-			M.get_playback_info()
-		end, 100)
 	end, { desc = "mpv seek backward", nargs = "?" })
 
 	vim.api.nvim_create_user_command("MpvSpeed", function(opts)
@@ -508,5 +504,44 @@ function M.setup()
 	vim.api.nvim_create_user_command("MpvQuit", function()
 		M.quit()
 	end, { desc = "关闭mpv" })
+end
+
+function M.start_time_title(time)
+	if time == nil then
+		time = config.mpv_time or 1000
+	end
+	local timer = uv.new_timer()
+	timer:start(
+		0,
+		time,
+		vim.schedule_wrap(function()
+			local info = {}
+			local collected = 0
+			local total = 3
+			local function show_info()
+				local msg = string.format(
+					"%s (%s / %s) ",
+					(info["media-title"] or "未知"):gsub("%%#", "%%"),
+					M.format_time(info["time-pos"]),
+					M.format_time(info["duration"])
+				)
+				M.title = msg or ""
+			end
+
+			local function make_cb(prop)
+				return function(data)
+					info[prop] = data
+					collected = collected + 1
+					if collected == total then
+						show_info()
+					end
+				end
+			end
+
+			M.send_to_mpv({ command = { "get_property", "media-title" } }, make_cb("media-title"))
+			M.send_to_mpv({ command = { "get_property", "time-pos" } }, make_cb("time-pos"))
+			M.send_to_mpv({ command = { "get_property", "duration" } }, make_cb("duration"))
+		end)
+	)
 end
 return M

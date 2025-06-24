@@ -8,6 +8,7 @@ M.send_queue = {}
 M.connecting = false
 M.req_id = 0
 M.pending = {} -- 储存回调: request_id -> function(data)
+M.title = ""
 
 function M.is_mpv_running()
 	if flag then
@@ -52,6 +53,7 @@ function M.start_mpv(path)
 			"--shuffle",
 			"--volume=50",
 			"--loop-playlist",
+			"--no-save-position-on-quit",
 		}, {
 			detach = true,
 		})
@@ -261,11 +263,13 @@ function M.get_playback_info()
 	local function show_info()
 		local msg = string.format(
 			"%s [%s / %s] (%.1f%%)",
-			info["media-title"] or "未知",
+			(info["media-title"] or "未知"):gsub("%%#", "%%"),
 			M.format_time(info["time-pos"]),
 			M.format_time(info["duration"]),
 			tonumber(info["percent-pos"] or 0)
 		)
+		M.title = (info["media-title"] or "未知"):gsub("%%#", "%%") or ""
+
 		vim.notify(msg, vim.log.levels.INFO, { title = "mpv 播放信息" })
 	end
 
@@ -298,9 +302,55 @@ function M.mpv_volume_down()
 	end, 1000)
 end
 
-vim.api.nvim_create_user_command("MpvNext", function()
-	M.mpv_playlist_next()
-end, { desc = "mpv playlist next" })
+function M.get_path(callback)
+	local info = {}
+	local collected = 0
+	local total = 2
+
+	local function get_work_path()
+		if not info["path"] or not info["working"] then
+			vim.notify("mpv 属性 path 或 working-directory 未获取到", vim.log.levels.ERROR)
+			if callback then
+				callback(config.music_path)
+			end
+			return
+		end
+
+		local function is_absolute(p)
+			return p:match("^%a:[/\\]") or p:match("^\\\\")
+		end
+
+		local cleaned_path = info["path"]:gsub("^%./", "")
+		local abs_path
+		if is_absolute(cleaned_path) then
+			abs_path = vim.fn.fnamemodify(cleaned_path, ":p")
+		else
+			abs_path = vim.fn.fnamemodify(info["working"] .. "/" .. cleaned_path, ":p")
+		end
+		local dir = vim.fn.fnamemodify(abs_path, ":h"):gsub("[/\\]%.?$", "") .. "/"
+		if callback then
+			callback(dir)
+		end
+	end
+
+	local function make_cb(prop)
+		return function(data)
+			info[prop] = data
+			collected = collected + 1
+			if collected == total then
+				get_work_path()
+			end
+		end
+	end
+
+	M.send_to_mpv({ command = { "get_property", "working-directory" } }, make_cb("working"))
+	M.send_to_mpv({ command = { "get_property", "path" } }, make_cb("path"))
+end
+
+function M.quit()
+	M.send_to_mpv({ command = { "quit" } })
+	vim.notify("mpv 已退出", vim.log.levels.INFO, { title = "mpv" })
+end
 
 function M.setup()
 	-- 只注册一次 autocmd（不在 start_mpv 里注册）
@@ -413,42 +463,50 @@ function M.setup()
 			vim.notify("snacks.nvim 未安装，无法打开选择器", vim.log.levels.ERROR)
 			return
 		end
-		require("mpv.ipc").auto_start_mpv()
-		require("snacks.picker").files({
-			cwd = config.ipc_path, -- 或其他目录
-			ignored = true,
-			preview = function(item)
-				if not item then
-					return
-				end
-				-- local path = vim.fn.expand("~/OneDrive/PARA/resource/music/" .. item.file)
-				local path = Snacks.picker.util.path(item.item)
-				if vim.fn.executable("mediainfo") == 1 then
-					vim.system({ "mediainfo", path }, { text = true }, function(obj)
-						vim.schedule(function()
-							if obj.code == 0 then
-								item.preview:notify(obj.stdout, info)
-							else
-								item.preview:notify(obj.stderr, error)
-							end
-						end)
-					end)
-				else
-					item.preview:notify(path, info)
-				end
-			end,
-			actions = {
-				confirm = function(picker, item)
+		M.auto_start_mpv()
+		M.get_path(function(path)
+			require("snacks.picker").files({
+				cwd = path, -- 或其他目录
+				ignored = true,
+				preview = function(item)
 					if not item then
 						return
 					end
-					local path = vim.fn.expand("~/OneDrive/PARA/resource/music/" .. item.file)
-					M.play_file(path)
-					picker:close()
+					-- local path = vim.fn.expand("~/OneDrive/PARA/resource/music/" .. item.file)
+					local path = Snacks.picker.util.path(item.item)
+					if vim.fn.executable("mediainfo") == 1 then
+						vim.system({ "mediainfo", path }, { text = true }, function(obj)
+							vim.schedule(function()
+								if obj.code == 0 then
+									item.preview:notify(obj.stdout, info)
+								else
+									item.preview:notify(obj.stderr, error)
+								end
+							end)
+						end)
+					else
+						item.preview:notify(path, info)
+					end
 				end,
-			},
-		})
+				actions = {
+					confirm = function(picker, item)
+						if not item then
+							return
+						end
+						local path = vim.fn.expand(path .. "/" .. item.file)
+						M.play_file(path)
+						picker:close()
+					end,
+				},
+			})
+		end)
 	end, {})
 
+	vim.api.nvim_create_user_command("MpvGetPath", function()
+		M.get_path()
+	end, { desc = "获取播放目录" })
+	vim.api.nvim_create_user_command("MpvQuit", function()
+		M.quit()
+	end, { desc = "关闭mpv" })
 end
 return M

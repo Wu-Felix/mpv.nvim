@@ -2,6 +2,7 @@ local M = { pipe = nil }
 local config = require("mpv.config")
 local uv = vim.uv
 local flag = false
+local connected = false
 
 M.send_queue = {}
 M.connecting = false
@@ -126,18 +127,6 @@ function M.connect()
 	end)
 end
 
--- 只注册一次 autocmd（不在 start_mpv 里注册）
-vim.api.nvim_create_autocmd("VimLeavePre", {
-	once = true, -- 避免重复触发
-	callback = function()
-		if vim.fn.has("win32") == 1 then
-			os.execute("taskkill /IM mpv.exe /F")
-		else
-			-- 等待命令执行完成，避免 nvim 退出太快
-			os.execute("pkill -f 'mpv.*" .. config.ipc_path .. "'")
-		end
-	end,
-})
 function M.auto_start_mpv()
 	if not M.is_mpv_running() then
 		vim.system({
@@ -313,133 +302,153 @@ vim.api.nvim_create_user_command("MpvNext", function()
 	M.mpv_playlist_next()
 end, { desc = "mpv playlist next" })
 
-vim.api.nvim_create_user_command("MpvPrev", function()
-	M.mpv_playlist_prev()
-end, { desc = "mpv playlist perv" })
+function M.setup()
+	-- 只注册一次 autocmd（不在 start_mpv 里注册）
+	-- vim.api.nvim_create_autocmd("VimLeavePre", {
+	-- 	once = true, -- 避免重复触发
+	-- 	callback = function()
+	-- 		if vim.fn.has("win32") == 1 then
+	-- 			os.execute("taskkill /IM mpv.exe /F")
+	-- 		else
+	-- 			-- 等待命令执行完成，避免 nvim 退出太快
+	-- 			os.execute("pkill -f 'mpv.*" .. config.ipc_path .. "'")
+	-- 		end
+	-- 	end,
+	-- })
 
-vim.api.nvim_create_user_command("MpvPlay", function(opts)
-	if opts.args == "" then
-		M.start_mpv()
-	else
-		M.mpv_play(vim.fn.expand(opts.args))
-	end
-	vim.defer_fn(function()
-		M.connect()
-	end, 500)
-end, {
-	desc = "mpv playlist perv",
-	nargs = "?",
-	complete = "file",
-})
+	vim.api.nvim_create_user_command("MpvNext", function()
+		M.mpv_playlist_next()
+	end, { desc = "mpv playlist next" })
 
-vim.api.nvim_create_user_command("MpvPause", function()
-	M.mpv_toggle_pause()
-end, { desc = "Toggle mpv pause/play" })
+	vim.api.nvim_create_user_command("MpvPrev", function()
+		M.mpv_playlist_prev()
+	end, { desc = "mpv playlist perv" })
 
-vim.api.nvim_create_user_command("MpvVolumeUp", function()
-	M.mpv_volume_up()
-end, { desc = "Increase mpv volume" })
+	vim.api.nvim_create_user_command("MpvPlay", function(opts)
+		if opts.args == "" then
+			M.start_mpv()
+		else
+			M.mpv_play(vim.fn.expand(opts.args))
+		end
+		vim.defer_fn(function()
+			M.connect()
+		end, 500)
+	end, {
+		desc = "mpv playlist perv",
+		nargs = "?",
+		complete = "file",
+	})
 
-vim.api.nvim_create_user_command("MpvVolumeDown", function()
-	M.mpv_volume_down()
-end, { desc = "Decrease mpv volume" })
+	vim.api.nvim_create_user_command("MpvPause", function()
+		M.mpv_toggle_pause()
+	end, { desc = "Toggle mpv pause/play" })
 
-vim.api.nvim_create_user_command("MpvTitle", function()
-	M.get_title()
-end, { desc = "mpv title" })
+	vim.api.nvim_create_user_command("MpvVolumeUp", function()
+		M.mpv_volume_up()
+	end, { desc = "Increase mpv volume" })
 
-vim.api.nvim_create_user_command("MpvInfo", function()
-	M.get_playback_info()
-end, { desc = "mpv info" })
+	vim.api.nvim_create_user_command("MpvVolumeDown", function()
+		M.mpv_volume_down()
+	end, { desc = "Decrease mpv volume" })
 
-vim.api.nvim_create_user_command("MpvSeekForward", function(opts)
-	if opts.args == "" then
-		M.mpv_seek_forward()
-	else
-		M.mpv_seek_forward(opts.args)
-	end
-	vim.defer_fn(function()
+	vim.api.nvim_create_user_command("MpvTitle", function()
+		M.get_title()
+	end, { desc = "mpv title" })
+
+	vim.api.nvim_create_user_command("MpvInfo", function()
 		M.get_playback_info()
-	end, 100)
-end, { desc = "mpv seek backward", nargs = "?" })
+	end, { desc = "mpv info" })
 
-vim.api.nvim_create_user_command("MpvSeekBackward", function(opts)
-	if opts.args == "" then
-		M.mpv_seek_backward()
-	else
-		M.mpv_seek_backward(opts.args)
-	end
-	vim.defer_fn(function()
-		M.get_playback_info()
-	end, 100)
-end, { desc = "mpv seek backward", nargs = "?" })
+	vim.api.nvim_create_user_command("MpvSeekForward", function(opts)
+		if opts.args == "" then
+			M.mpv_seek_forward()
+		else
+			M.mpv_seek_forward(opts.args)
+		end
+		vim.defer_fn(function()
+			M.get_playback_info()
+		end, 100)
+	end, { desc = "mpv seek backward", nargs = "?" })
 
-vim.api.nvim_create_user_command("MpvSpeed", function(opts)
-	local rate = tonumber(opts.args)
-	if rate then
-		M.set_speed(rate)
-	else
-		M.get_speed()
-	end
-end, {
-	nargs = "?",
-	desc = "设置或获取 mpv 播放速度。示例：:MpvSpeed 1.5",
-})
+	vim.api.nvim_create_user_command("MpvSeekBackward", function(opts)
+		if opts.args == "" then
+			M.mpv_seek_backward()
+		else
+			M.mpv_seek_backward(opts.args)
+		end
+		vim.defer_fn(function()
+			M.get_playback_info()
+		end, 100)
+	end, { desc = "mpv seek backward", nargs = "?" })
 
-vim.api.nvim_create_user_command("MpvSpeedUp", function()
-	M.adjust_speed(0.1)
-	vim.defer_fn(function()
-		M.get_speed()
-	end, 100)
-end, { desc = "播放速度 +0.1" })
+	vim.api.nvim_create_user_command("MpvSpeed", function(opts)
+		local rate = tonumber(opts.args)
+		if rate then
+			M.set_speed(rate)
+		else
+			M.get_speed()
+		end
+	end, {
+		nargs = "?",
+		desc = "设置或获取 mpv 播放速度。示例：:MpvSpeed 1.5",
+	})
 
-vim.api.nvim_create_user_command("MpvSpeedDown", function()
-	M.adjust_speed(-0.1)
-	vim.defer_fn(function()
-		M.get_speed()
-	end, 100)
-end, { desc = "播放速度 -0.1" })
+	vim.api.nvim_create_user_command("MpvSpeedUp", function()
+		M.adjust_speed(0.1)
+		vim.defer_fn(function()
+			M.get_speed()
+		end, 100)
+	end, { desc = "播放速度 +0.1" })
 
-vim.api.nvim_create_user_command("MpvPicker", function()
-	local ok_snacks, snacks = pcall(require, "snacks.picker")
-	if not ok_snacks then
-		vim.notify("snacks.nvim 未安装，无法打开选择器", vim.log.levels.ERROR)
-		return
-	end
-	require("mpv.ipc").auto_start_mpv()
-	require("snacks.picker").files({
-		cwd = "~/OneDrive/PARA/resource/music", -- 或其他目录
-		ignored = true,
-		preview = function(item)
-			if not item then
-				return
-			end
-			-- local path = vim.fn.expand("~/OneDrive/PARA/resource/music/" .. item.file)
-			local path = Snacks.picker.util.path(item.item)
-			if vim.fn.executable("mediainfo") == 1 then
-				vim.system({ "mediainfo", path }, { text = true }, function(obj)
-					vim.schedule(function()
-						if obj.code == 0 then
-							item.preview:notify(obj.stdout, info)
-						else
-							item.preview:notify(obj.stderr, error)
-						end
-					end)
-				end)
-			else
-				item.preview:notify(path, info)
-			end
-		end,
-		actions = {
-			confirm = function(picker, item)
+	vim.api.nvim_create_user_command("MpvSpeedDown", function()
+		M.adjust_speed(-0.1)
+		vim.defer_fn(function()
+			M.get_speed()
+		end, 100)
+	end, { desc = "播放速度 -0.1" })
+
+	vim.api.nvim_create_user_command("MpvPicker", function()
+		local ok_snacks, snacks = pcall(require, "snacks.picker")
+		if not ok_snacks then
+			vim.notify("snacks.nvim 未安装，无法打开选择器", vim.log.levels.ERROR)
+			return
+		end
+		require("mpv.ipc").auto_start_mpv()
+		require("snacks.picker").files({
+			cwd = config.ipc_path, -- 或其他目录
+			ignored = true,
+			preview = function(item)
 				if not item then
 					return
 				end
-				local path = vim.fn.expand("~/OneDrive/PARA/resource/music/" .. item.file)
-				M.play_file(path)
-				picker:close()
+				-- local path = vim.fn.expand("~/OneDrive/PARA/resource/music/" .. item.file)
+				local path = Snacks.picker.util.path(item.item)
+				if vim.fn.executable("mediainfo") == 1 then
+					vim.system({ "mediainfo", path }, { text = true }, function(obj)
+						vim.schedule(function()
+							if obj.code == 0 then
+								item.preview:notify(obj.stdout, info)
+							else
+								item.preview:notify(obj.stderr, error)
+							end
+						end)
+					end)
+				else
+					item.preview:notify(path, info)
+				end
 			end,
-		},
-	})
-end, {})
+			actions = {
+				confirm = function(picker, item)
+					if not item then
+						return
+					end
+					local path = vim.fn.expand("~/OneDrive/PARA/resource/music/" .. item.file)
+					M.play_file(path)
+					picker:close()
+				end,
+			},
+		})
+	end, {})
+
+end
 return M

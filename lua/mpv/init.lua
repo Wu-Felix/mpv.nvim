@@ -11,5 +11,6 @@ function M.setup(opts)
 	else
 		config.ipc_path = "/tmp/" .. config.ipc_name
 	end
+	mpv_ipc.setup()
 end
 return M

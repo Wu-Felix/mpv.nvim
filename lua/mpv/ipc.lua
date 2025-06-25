@@ -323,12 +323,17 @@ function M.get_path(callback)
 
 		local cleaned_path = info["path"]:gsub("^%./", "")
 		local abs_path
-		if is_absolute(cleaned_path) then
-			abs_path = vim.fn.fnamemodify(cleaned_path, ":p")
+		local dir
+		if vim.fn.has("win32") == 1 then
+			if is_absolute(cleaned_path) then
+				abs_path = vim.fn.fnamemodify(cleaned_path, ":p")
+			else
+				abs_path = vim.fn.fnamemodify(info["working"] .. "/" .. cleaned_path, ":p")
+			end
+			dir = vim.fn.fnamemodify(abs_path, ":h"):gsub("[/\\]%.?$", "") .. "/"
 		else
-			abs_path = vim.fn.fnamemodify(info["working"] .. "/" .. cleaned_path, ":p")
+			dir = vim.fn.fnamemodify(info["path"], ":h")
 		end
-		local dir = vim.fn.fnamemodify(abs_path, ":h"):gsub("[/\\]%.?$", "") .. "/"
 		if callback then
 			callback(dir)
 		end
